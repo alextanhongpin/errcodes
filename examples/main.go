@@ -14,7 +14,7 @@ var errorBytes []byte
 
 var (
 	_               = errcodes.Load(errorBytes, toml.Unmarshal)
-	ErrUserNotFound = errcodes.Of("user_not_found")
+	ErrUserNotFound = errcodes.For("user_not_found")
 )
 
 func main() {
@@ -31,4 +31,6 @@ func main() {
 	})
 	fmt.Printf("%#v\n", errM)
 	fmt.Printf("%#v\n", ErrUserNotFound)
+	fmt.Println(errM)
+	fmt.Println(errM.String())
 }

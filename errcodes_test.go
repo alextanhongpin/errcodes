@@ -2,6 +2,7 @@ package errcodes_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -16,7 +17,9 @@ func TestErrcodes(t *testing.T) {
 	var errC *errcodes.Error
 
 	testcases := make(map[string]bool)
-	testcases["errors.Is returns true"] = errors.Is(err, ErrUserAlreadyExists)
+	testcases["errors.Is returns true for unwrapped error"] = errors.Is(err, ErrUserAlreadyExists)
+	testcases["errors.Is returns true for wrapped error"] = errors.Is(fmt.Errorf("%w: John", err), ErrUserAlreadyExists)
+	testcases["errors.Unwrap matches"] = errors.Unwrap(fmt.Errorf("%w: John", err)) == ErrUserAlreadyExists
 	testcases["errors.As returns true"] = errors.As(err, &errC)
 
 	errM := errC.WithMetadata(map[string]any{

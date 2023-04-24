@@ -22,15 +22,15 @@ func init() {
 type Code string
 
 const (
-	AlreadyExists       Code = "already_exists"
-	BadRequest          Code = "bad_request"
-	Conflict            Code = "conflict"
-	Forbidden           Code = "forbidden"
-	Internal            Code = "internal"
-	NotFound            Code = "not_found"
-	PreconditionsFailed Code = "precondition_failed"
-	Unauthorized        Code = "unauthorized"
-	Unknown             Code = "unknown"
+	AlreadyExists      Code = "already_exists"
+	BadRequest         Code = "bad_request"
+	Conflict           Code = "conflict"
+	Forbidden          Code = "forbidden"
+	Internal           Code = "internal"
+	NotFound           Code = "not_found"
+	PreconditionFailed Code = "precondition_failed"
+	Unauthorized       Code = "unauthorized"
+	Unknown            Code = "unknown"
 )
 
 func (c Code) Valid() bool {
@@ -52,12 +52,13 @@ func (c Code) Valid() bool {
 }
 
 type Error struct {
-	Code        Code   // Code, e.g. failed_preconditions
-	Reason      string // Unique reason code, e.g. user_exists
-	Description string // Human-readable error description.
-	Metadata    map[string]any
+	Code        Code           `json:"code"`        // Code, e.g. failed_preconditions
+	Reason      string         `json:"reason"`      // Unique reason code, e.g. user_exists
+	Description string         `json:"description"` // Human-readable error description.
+	Metadata    map[string]any `json:"metadata"`
 }
 
+// New returns a new error with the given code, reason and description.
 func New(code Code, reason, description string) *Error {
 	if !code.Valid() {
 		panic(ErrInvalidCode)
@@ -71,10 +72,16 @@ func New(code Code, reason, description string) *Error {
 	}
 }
 
+// Error satisfies the error interface.
 func (e *Error) Error() string {
 	return e.Description
 }
 
+func (e *Error) String() string {
+	return fmt.Sprintf("[errcodes.%s] %s: %s", e.Code, e.Reason, e.Description)
+}
+
+// Is checks if the error is valid.
 func (e *Error) Is(err error) bool {
 	var ec *Error
 	if !errors.As(err, &ec) {
@@ -84,12 +91,14 @@ func (e *Error) Is(err error) bool {
 	return e.Reason == ec.Reason
 }
 
+// WithMetadata returns a copy of the error with the given metadata.
 func (e *Error) WithMetadata(metadata map[string]any) *Error {
 	ec := e.Clone()
 	ec.Metadata = metadata
 	return ec
 }
 
+// Clone clones the error.
 func (e *Error) Clone() *Error {
 	err := New(e.Code, e.Reason, e.Description)
 	for k, v := range e.Metadata {
@@ -99,8 +108,8 @@ func (e *Error) Clone() *Error {
 	return err
 }
 
-// Of returns a copy of the error from the registry with the given reason.
-func Of(reason string) *Error {
+// For returns a copy of the error from the registry for the given reason.
+func For(reason string) *Error {
 	err := registry[reason]
 	return err.Clone()
 }
@@ -123,6 +132,7 @@ func Load(data []byte, unmarshalFn func(data []byte, v any) error) int {
 			if ok {
 				panic(fmt.Errorf("%w: %q is repeated", ErrDuplicateReason, reason))
 			}
+
 			registry[reason] = New(code, reason, description)
 		}
 	}
@@ -130,6 +140,7 @@ func Load(data []byte, unmarshalFn func(data []byte, v any) error) int {
 	return len(descriptionByReasonByCode)
 }
 
+// ̱HTTPStatusCode returns the HTTP status code for the given error code.
 func HTTPStatusCode(code Code) int {
 	switch code {
 	case "already_exists":
@@ -155,6 +166,7 @@ func HTTPStatusCode(code Code) int {
 	}
 }
 
+// GRPCCode returns the gRPC code for the given error code.
 func GRPCCode(code Code) codes.Code {
 	switch code {
 	case "already_exists":
