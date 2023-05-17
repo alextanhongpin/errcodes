@@ -39,3 +39,37 @@ func TestErrcodes(t *testing.T) {
 		})
 	}
 }
+
+func TestRegister(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		err := errcodes.Register("not_found.user_not_found: User does not exists")
+		if want, got := errcodes.NotFound, err.Code; want != got {
+			t.Fatalf("want %v, got %v", want, got)
+		}
+
+		if want, got := "user_not_found", err.Reason; want != got {
+			t.Fatalf("want %v, got %v", want, got)
+		}
+
+		if want, got := "User does not exists", err.Description; want != got {
+			t.Fatalf("want %v, got %v", want, got)
+		}
+	})
+
+	t.Run("failed", func(t *testing.T) {
+		defer func() {
+			if e := recover(); e != nil {
+				err, ok := e.(error)
+				if !ok {
+					t.Fatalf("want error, got %v", e)
+				}
+
+				if !errors.Is(err, errcodes.ErrInvalidFormat) {
+					t.Fatalf("want %v, got %v", errcodes.ErrInvalidFormat, err)
+				}
+			}
+		}()
+
+		_ = errcodes.Register("hello")
+	})
+}

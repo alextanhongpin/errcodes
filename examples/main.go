@@ -13,8 +13,9 @@ import (
 var errorBytes []byte
 
 var (
-	_               = errcodes.Load(errorBytes, toml.Unmarshal)
-	ErrUserNotFound = errcodes.For("user_not_found")
+	_                   = errcodes.Load(errorBytes, toml.Unmarshal)
+	ErrUserNotFound     = errcodes.For("user_not_found")
+	ErrUserEmailInvalid = errcodes.Register("bad_request.user_email_invalid: Your email is invalid")
 )
 
 func main() {
@@ -33,4 +34,8 @@ func main() {
 	fmt.Printf("%#v\n", ErrUserNotFound)
 	fmt.Println(errM)
 	fmt.Println(errM.String())
+
+	err = ErrUserEmailInvalid
+	fmt.Println(err)
+	fmt.Printf("%#v\n", err)
 }

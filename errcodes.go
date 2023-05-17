@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 )
@@ -11,6 +12,7 @@ import (
 var (
 	ErrInvalidCode     = errors.New("errcodes: invalid code")
 	ErrDuplicateReason = errors.New("errcodes: duplicate reason")
+	ErrInvalidFormat   = errors.New("errcodes: invalid format")
 )
 
 var registry map[string]*Error
@@ -112,6 +114,33 @@ func (e *Error) Clone() *Error {
 func For(reason string) *Error {
 	err := registry[reason]
 	return err.Clone()
+}
+
+func Register(pattern string) *Error {
+	codeStr, reasonWithMessage, ok := strings.Cut(pattern, ".")
+	if !ok {
+		panic(ErrInvalidFormat)
+	}
+
+	code := Code(codeStr)
+	if !code.Valid() {
+		panic(ErrInvalidCode)
+	}
+
+	reason, description, ok := strings.Cut(reasonWithMessage, ":")
+	if !ok {
+		panic(ErrInvalidFormat)
+	}
+
+	reason, description = strings.TrimSpace(reason), strings.TrimSpace(description)
+	_, ok = registry[reason]
+	if ok {
+		panic(fmt.Errorf("%w: %q is repeated", ErrDuplicateReason, reason))
+	}
+
+	registry[reason] = New(code, reason, description)
+
+	return For(reason)
 }
 
 // Load loads the errors from an external file, which can be embedded using go
