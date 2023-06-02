@@ -5,17 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/BurntSushi/toml"
 	"github.com/alextanhongpin/errcodes"
 )
 
-//go:embed errors.toml
-var errorBytes []byte
-
 var (
-	_                   = errcodes.Load(errorBytes, toml.Unmarshal)
-	ErrUserNotFound     = errcodes.For("user_not_found")
-	ErrUserEmailInvalid = errcodes.Register("bad_request.user_email_invalid: Your email is invalid")
+	ErrUserNotFound     = errcodes.New(errcodes.NotFound, "user_not_found", "The user is not found")
+	ErrUserEmailInvalid = errcodes.New(errcodes.BadRequest, "user_email_invalid", "Your email is invalid")
 )
 
 func main() {
@@ -27,7 +22,7 @@ func main() {
 	}
 
 	fmt.Println(errC)
-	errM := errC.WithMetadata(map[string]any{
+	errM := errC.WithData(map[string]any{
 		"Name": "john",
 	})
 	fmt.Printf("%#v\n", errM)
