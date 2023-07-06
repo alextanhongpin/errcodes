@@ -52,7 +52,6 @@ type Error struct {
 	Kind    Kind
 	Code    Code
 	Message string
-	Data    map[string]any
 }
 
 // New returns a new error with the given code, reason and description.
@@ -65,7 +64,6 @@ func New(kind Kind, code Code, message string) *Error {
 		Kind:    kind,
 		Code:    code,
 		Message: message,
-		Data:    make(map[string]any),
 	}
 }
 
@@ -86,23 +84,6 @@ func (e *Error) Is(err error) bool {
 	}
 
 	return e.Kind == ec.Kind && e.Code == ec.Code
-}
-
-// WithMetadata returns a copy of the error with the given metadata.
-func (e *Error) WithData(data map[string]any) *Error {
-	ec := e.Clone()
-	ec.Data = data
-	return ec
-}
-
-// Clone clones the error.
-func (e *Error) Clone() *Error {
-	err := New(e.Kind, e.Code, e.Message)
-	for k, v := range e.Data {
-		err.Data[k] = v
-	}
-
-	return err
 }
 
 var httpStatusByKind = map[Kind]int{

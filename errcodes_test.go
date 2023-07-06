@@ -25,11 +25,6 @@ func TestErrcodes(t *testing.T) {
 	var errC *errcodes.Error
 	tests["errors.As returns true"] = errors.As(err, &errC)
 
-	errD := errC.WithData(map[string]any{
-		"email": "john.appleseed@mail.com",
-	})
-
-	tests["metadata is set correctly"] = errD.Data["email"] == "john.appleseed@mail.com"
 	tests["correct http status code"] = errcodes.HTTPStatusCode(errC.Kind) == http.StatusConflict
 	tests["correct grpc status code"] = errcodes.GRPCCode(errC.Kind) == codes.AlreadyExists
 
