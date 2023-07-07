@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -201,21 +200,6 @@ func formatFrame(frame runtime.Frame) string {
 		prettyFile(frame.File),
 		frame.Line,
 	)
-}
-
-func typeName(v any) (res string) {
-	t := reflect.TypeOf(v)
-	if t.Kind() == reflect.Pointer {
-		res += "*"
-		t = t.Elem()
-	}
-
-	if p := t.PkgPath(); p != "" {
-		res += p
-		res += "."
-	}
-	res += t.Name()
-	return
 }
 
 func frame(pc uintptr) runtime.Frame {
