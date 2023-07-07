@@ -30,11 +30,13 @@ func Sprint(err error) string {
 				Function: f.Function,
 				Line:     f.Line,
 			}
+
 			if seen[fi] {
 				break
 			}
-			rev = append(rev, fmt.Sprintf("\t%s", formatFrame(f)))
 			seen[fi] = true
+
+			rev = append(rev, fmt.Sprintf("\t%s", formatFrame(f)))
 		}
 
 		reverse(rev)

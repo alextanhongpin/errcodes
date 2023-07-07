@@ -11,8 +11,6 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-var gopath = os.Getenv("GOPATH")
-
 func reverse[T any](s []T) {
 	for i, j := 0, len(s)-1; i < len(s)/2; i, j = i+1, j-1 {
 		s[i], s[j] = s[j], s[i]
@@ -40,16 +38,13 @@ func callers(skip int) []uintptr {
 }
 
 func prettyFile(f string) string {
-	if len(gopath) == 0 {
+	wd, err := os.Getwd()
+	if err != nil {
 		return f
 	}
 
-	// TODO: also split by bitbucket, github.com, gopkg, golang.org?
-
-	parts := strings.Split(f, fmt.Sprintf("%s/src", gopath))
-	part := parts[len(parts)-1]
-
-	return strings.TrimPrefix(part, "/")
+	f = strings.TrimPrefix(f, wd)
+	return strings.TrimPrefix(f, "/")
 }
 
 func prettyFunction(f string) string {
