@@ -3,246 +3,85 @@ package stacktrace
 import (
 	"errors"
 	"fmt"
-	"os"
 	"runtime"
-	"sort"
 	"strings"
-
-	"golang.org/x/exp/slices"
 )
 
-var gopath = os.Getenv("GOPATH")
-
 func Sprint(err error) string {
-	var res []string
-	res = append(res, fmt.Sprintf("Error: %s", err.Error()))
+	var sb strings.Builder
 
-	var e *errorStack
-	if errors.As(err, &e) {
-		// Include the current line into the stack trace.
-		e.pcs = mergePCs(e.pcs, caller(2))
-		res = append(res, e.String())
-	}
+	sb.WriteString("Error: ")
+	sb.WriteString(err.Error())
+	sb.WriteRune('\n')
 
-	return strings.Join(res, "\n")
-}
+	seen := make(map[runtime.Frame]bool)
+	err = newErrorStack(err, "")
 
-// WithStack adds the stack trace at the current line.
-func WithStack(err error) error {
-	var errStack *errorStack
-	if errors.As(err, &errStack) {
-		return err
-	}
-
-	return newErrorStack(err, "")
-}
-
-func WithCause(err error, msg string) error {
-	var e *errorStack
-	if errors.As(err, &e) {
-		c := newErrorStack(err, msg)
-
-		// Combine both PCs.
-		c.pcs = mergePCs(c.pcs, e.StackTrace()...)
-
-		// Copy kv from old error to new error.
-		for k, v := range e.cause {
-			c.cause[k] = v
+	for err != nil {
+		var r *errorStack
+		if !errors.As(err, &r) {
+			break
 		}
 
-		return c
+		var rev []string
+		for _, f := range frames(r.stack) {
+			fi := runtime.Frame{
+				File:     f.File,
+				Function: f.Function,
+				Line:     f.Line,
+			}
+			if seen[fi] {
+				break
+			}
+			rev = append(rev, fmt.Sprintf("\t%s", formatFrame(f)))
+			seen[fi] = true
+		}
+
+		reverse(rev)
+
+		for i, s := range rev {
+			if i == len(rev)-1 && r.cause != "" {
+				sb.WriteString("    Caused by: ")
+				sb.WriteString(r.cause)
+				sb.WriteRune('\n')
+			}
+			sb.WriteString(s)
+			sb.WriteRune('\n')
+		}
+
+		err = r.Unwrap()
 	}
 
-	return newErrorStack(err, msg)
+	return sb.String()
+}
+
+func Wrap(err error, cause string) error {
+	return newErrorStack(err, cause)
+}
+
+func New(err error) error {
+	return newErrorStack(err, err.Error())
 }
 
 type errorStack struct {
 	err   error
-	pcs   []uintptr
-	cause map[uintptr]string
+	stack []uintptr
+	cause string
 }
 
-func newErrorStack(err error, msg string) *errorStack {
-	// skip [runtime, callers, newErrorStack, With*]
-	pcs := callers(4)
-	cause := make(map[uintptr]string)
-	if msg != "" {
-		// Use the function PC when annotating cause.
-		// All lines from the same function will be grouped later.
-		pc := frame(pcs[0]).Entry
-		cause[pc] = msg
-	}
-
+func newErrorStack(err error, cause string) error {
 	return &errorStack{
-		err:   err,
+		err: err,
+		// skip [runtime, caller, newErrorStack, parent]
+		stack: callers(4),
 		cause: cause,
-		pcs:   pcs,
 	}
 }
 
-func (e *errorStack) StackTrace() []uintptr {
-	pcs := make([]uintptr, len(e.pcs))
-	copy(pcs, e.pcs)
-	return pcs
+func (r *errorStack) Error() string {
+	return r.err.Error()
 }
 
-func (e *errorStack) Unwrap() error {
-	return e.err
-}
-
-func (e *errorStack) Error() string {
-	return e.err.Error()
-}
-
-func (e *errorStack) String() string {
-	pcs := e.StackTrace()
-
-	// Top-down, from the main program to the root cause.
-	reverse(pcs)
-
-	type funcStack struct {
-		frames []runtime.Frame
-		cause  string
-	}
-
-	var orderedPCs []uintptr
-
-	groupByFuncPC := make(map[uintptr]funcStack)
-
-	frames := runtime.CallersFrames(pcs)
-
-	for {
-		f, more := frames.Next()
-
-		if strings.HasPrefix(f.Function, "runtime") {
-			continue
-		}
-		if f.Function == "" {
-			break
-		}
-
-		// We use the function PC as a reference.
-		// We want to group all the lines by the function PC,
-		// then sort them by line number in descending order
-		// (bottom-up) so that we can trace back errors.
-		pc := f.Entry
-
-		var cause string
-		if msg, ok := e.cause[pc]; ok && len(msg) > 0 {
-			cause = msg
-		}
-
-		// Some lines may be out of order.
-		// However, due to how the PC are always incrementing,
-		// if the PC is lower, it means it is called first.
-		// We will group other PCs that comes later by the same function PC.
-		if _, ok := groupByFuncPC[pc]; !ok {
-			groupByFuncPC[f.Entry] = funcStack{}
-			orderedPCs = append(orderedPCs, pc)
-		}
-
-		g := groupByFuncPC[pc]
-		g.cause = cause
-		g.frames = append(g.frames, f)
-		groupByFuncPC[pc] = g
-
-		if !more {
-			break
-		}
-	}
-
-	var out []string
-
-	exists := make(map[string]bool)
-	for i := 0; i < len(orderedPCs); i++ {
-		pc := orderedPCs[i]
-		g := groupByFuncPC[pc]
-
-		fs := g.frames
-
-		// Order the frames from same function in descending order.
-		// This will appear bottom-up, so it is easier to trace the error.
-		sort.Slice(fs, func(i, j int) bool {
-			return fs[i].Line > fs[j].Line
-		})
-
-		// Annotate at function level.
-		if g.cause != "" {
-			out = append(out, fmt.Sprintf("    Caused by: %s", g.cause))
-		}
-
-		for j := range fs {
-			f := fs[j]
-			s := formatFrame(f)
-			if exists[s] {
-				continue
-			}
-
-			out = append(out, fmt.Sprintf("\t%s", s))
-			exists[s] = true
-		}
-
-		out = append(out, "")
-	}
-
-	return strings.Join(out, "\n")
-}
-
-func reverse[T any](s []T) {
-	for i, j := 0, len(s)-1; i < len(s)/2; i, j = i+1, j-1 {
-		s[i], s[j] = s[j], s[i]
-	}
-}
-
-func formatFrame(frame runtime.Frame) string {
-	return fmt.Sprintf("at %s (in %s:%d)",
-		frame.Function,
-		prettyFile(frame.File),
-		frame.Line,
-	)
-}
-
-func frame(pc uintptr) runtime.Frame {
-	f, _ := runtime.CallersFrames([]uintptr{pc}).Next()
-	return f
-}
-
-func caller(skip int) uintptr {
-	pc, _, _, _ := runtime.Caller(skip)
-	return pc
-}
-
-func callers(skip int) []uintptr {
-	const depth = 64
-	var pc [depth]uintptr
-	n := runtime.Callers(skip, pc[:])
-	if n == 0 {
-		return nil
-	}
-
-	var pcs = pc[:n]
-	return pcs
-}
-
-func prettyFile(f string) string {
-	if len(gopath) == 0 {
-		return f
-	}
-
-	// TODO: also split by bitbucket, github.com, gopkg, golang.org?
-
-	parts := strings.Split(f, fmt.Sprintf("%s/src", gopath))
-	part := parts[len(parts)-1]
-
-	return strings.TrimPrefix(part, "/")
-}
-
-func mergePCs(x []uintptr, y ...uintptr) []uintptr {
-	z := append(x, y...)
-
-	sort.Slice(z, func(i, j int) bool {
-		return z[i] < z[j]
-	})
-
-	return slices.Compact(z)
+func (r *errorStack) Unwrap() error {
+	return r.err
 }
