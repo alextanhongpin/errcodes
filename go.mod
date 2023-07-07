@@ -3,7 +3,7 @@ module github.com/alextanhongpin/errcodes
 go 1.20
 
 require (
-	github.com/BurntSushi/toml v1.2.1
+	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
 	google.golang.org/grpc v1.54.0
 )
 

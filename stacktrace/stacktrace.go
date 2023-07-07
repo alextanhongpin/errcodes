@@ -1,156 +1,192 @@
-package main
+package stacktrace
 
 import (
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
+
+	"golang.org/x/exp/slices"
 )
 
-func bar() error {
-	return WithStack(errors.New("bad"))
+var gopath = os.Getenv("GOPATH")
+
+func Sprint(err error) string {
+	var res []string
+	res = append(res, fmt.Sprintf("Error: %s", err.Error()))
+
+	var e *errorStack
+	if errors.As(err, &e) {
+		// Include the current line into the stack trace.
+		e.pcs = mergePCs(e.pcs, caller(2))
+		res = append(res, e.String())
+	}
+
+	return strings.Join(res, "\n")
 }
 
-func foo() error {
-	err := bar()
-
-	err = WithCause(err, "hello")
-
-	return err
-}
-
-func main() {
-	err := foo()
-
-	err = fmt.Errorf("%w: walalo", err)
-
-	fmt.Println(Sprint(err))
-}
-
+// WithStack adds the stack trace at the current line.
 func WithStack(err error) error {
 	var errStack *errorStack
 	if errors.As(err, &errStack) {
 		return err
 	}
 
-	return newErrorStack(err)
+	return newErrorStack(err, "")
 }
 
 func WithCause(err error, msg string) error {
-	var errStack *errorStack
-	if !errors.As(err, &errStack) {
-		errStack = newErrorStack(err)
-		fmt.Println("is not error stack", err, msg)
-	}
-	fmt.Println("is error stack", err, msg)
+	var e *errorStack
+	if errors.As(err, &e) {
+		c := newErrorStack(err, msg)
 
-	c := errStack.clone()
-	// Skips [caller, WithCause].
-	pc := caller(2)
-	frame, _ := runtime.CallersFrames([]uintptr{pc - 1}).Next()
-	c.cause[formatFrame(frame)] = msg
-	c.stack = append(c.stack, pc)
+		// Combine both PCs.
+		c.pcs = mergePCs(c.pcs, e.StackTrace()...)
 
-	return c
-}
+		// Copy kv from old error to new error.
+		for k, v := range e.cause {
+			c.cause[k] = v
+		}
 
-func Sprint(err error) string {
-	var errStack *errorStack
-	if !errors.As(err, &errStack) {
-		return err.Error()
+		return c
 	}
 
-	// Skips [caller, Sprint].
-	pc := caller(2)
-	frame, _ := runtime.CallersFrames([]uintptr{pc - 1}).Next()
-
-	c := errStack.clone()
-	c.err = err
-	//c.stack = append([]uintptr{frame.PC}, c.stack...)
-	c.stack = append(c.stack, frame.PC)
-	return c.String()
-	//return errStack.String()
+	return newErrorStack(err, msg)
 }
 
 type errorStack struct {
 	err   error
-	stack []uintptr
-	cause map[string]string
+	pcs   []uintptr
+	cause map[uintptr]string
 }
 
-func newErrorStack(err error) *errorStack {
+func newErrorStack(err error, msg string) *errorStack {
+	// skip [runtime, callers, newErrorStack, With*]
+	pcs := callers(4)
+	cause := make(map[uintptr]string)
+	if msg != "" {
+		// Use the function PC when annotating cause.
+		// All lines from the same function will be grouped later.
+		pc := frame(pcs[0]).Entry
+		cause[pc] = msg
+	}
+
 	return &errorStack{
-		err: err,
-		// Skip [runtime, callers, and newErrorStack, and WithStack].
-		stack: callers(4),
-		cause: make(map[string]string),
+		err:   err,
+		cause: cause,
+		pcs:   pcs,
 	}
-}
-
-func (e *errorStack) clone() *errorStack {
-	c := &errorStack{
-		err:   e.err,
-		stack: make([]uintptr, len(e.stack)),
-		cause: make(map[string]string),
-	}
-	copy(c.stack, e.stack)
-	for k, v := range e.cause {
-		c.cause[k] = v
-	}
-
-	return c
 }
 
 func (e *errorStack) StackTrace() []uintptr {
-	return e.stack
+	pcs := make([]uintptr, len(e.pcs))
+	copy(pcs, e.pcs)
+	return pcs
+}
+
+func (e *errorStack) Unwrap() error {
+	return e.err
 }
 
 func (e *errorStack) Error() string {
 	return e.err.Error()
 }
 
-func (err *errorStack) String() string {
-	stack := err.stack
-	cause := err.cause
+func (e *errorStack) String() string {
+	pcs := e.StackTrace()
 
-	s := make([]uintptr, len(stack))
-	copy(s, stack)
-	reverse(s)
+	// Top-down, from the main program to the root cause.
+	reverse(pcs)
 
-	var sb strings.Builder
-	sb.WriteString(typeName(err.err) + ": " + err.err.Error())
-	sb.WriteRune('\n')
-	sb.WriteRune('\n')
+	type funcStack struct {
+		frames []runtime.Frame
+		cause  string
+	}
 
-	frames := runtime.CallersFrames(s)
+	var orderedPCs []uintptr
+
+	groupByFuncPC := make(map[uintptr]funcStack)
+
+	frames := runtime.CallersFrames(pcs)
+
 	for {
-		frame, more := frames.Next()
+		f, more := frames.Next()
 
-		if strings.HasPrefix(frame.Function, "runtime") {
+		if strings.HasPrefix(f.Function, "runtime") {
 			continue
 		}
-
-		if frame.Function == "" {
-			continue
+		if f.Function == "" {
+			break
 		}
 
-		f := formatFrame(frame)
-		if msg, ok := cause[f]; ok {
-			sb.WriteString("    Caused by: ")
-			sb.WriteString(msg)
-			sb.WriteRune('\n')
+		// We use the function PC as a reference.
+		// We want to group all the lines by the function PC,
+		// then sort them by line number in descending order
+		// (bottom-up) so that we can trace back errors.
+		pc := f.Entry
+
+		var cause string
+		if msg, ok := e.cause[pc]; ok && len(msg) > 0 {
+			cause = msg
 		}
-		sb.WriteRune('\t')
-		sb.WriteString(f)
-		sb.WriteRune('\n')
+
+		// Some lines may be out of order.
+		// However, due to how the PC are always incrementing,
+		// if the PC is lower, it means it is called first.
+		// We will group other PCs that comes later by the same function PC.
+		if _, ok := groupByFuncPC[pc]; !ok {
+			groupByFuncPC[f.Entry] = funcStack{}
+			orderedPCs = append(orderedPCs, pc)
+		}
+
+		g := groupByFuncPC[pc]
+		g.cause = cause
+		g.frames = append(g.frames, f)
+		groupByFuncPC[pc] = g
 
 		if !more {
 			break
 		}
 	}
 
-	return sb.String()
+	var out []string
+
+	exists := make(map[string]bool)
+	for i := 0; i < len(orderedPCs); i++ {
+		pc := orderedPCs[i]
+		g := groupByFuncPC[pc]
+
+		fs := g.frames
+
+		// Order the frames from same function in descending order.
+		// This will appear bottom-up, so it is easier to trace the error.
+		sort.Slice(fs, func(i, j int) bool {
+			return fs[i].Line > fs[j].Line
+		})
+
+		// Annotate at function level.
+		if g.cause != "" {
+			out = append(out, fmt.Sprintf("    Caused by: %s", g.cause))
+		}
+
+		for j := range fs {
+			f := fs[j]
+			s := formatFrame(f)
+			if exists[s] {
+				continue
+			}
+
+			out = append(out, fmt.Sprintf("\t%s", s))
+			exists[s] = true
+		}
+
+		out = append(out, "")
+	}
+
+	return strings.Join(out, "\n")
 }
 
 func reverse[T any](s []T) {
@@ -160,9 +196,9 @@ func reverse[T any](s []T) {
 }
 
 func formatFrame(frame runtime.Frame) string {
-	return fmt.Sprintf("at %s in %s:%d",
+	return fmt.Sprintf("at %s (in %s:%d)",
 		frame.Function,
-		frame.File,
+		prettyFile(frame.File),
 		frame.Line,
 	)
 }
@@ -182,6 +218,11 @@ func typeName(v any) (res string) {
 	return
 }
 
+func frame(pc uintptr) runtime.Frame {
+	f, _ := runtime.CallersFrames([]uintptr{pc}).Next()
+	return f
+}
+
 func caller(skip int) uintptr {
 	pc, _, _, _ := runtime.Caller(skip)
 	return pc
@@ -191,7 +232,33 @@ func callers(skip int) []uintptr {
 	const depth = 64
 	var pc [depth]uintptr
 	n := runtime.Callers(skip, pc[:])
+	if n == 0 {
+		return nil
+	}
 
 	var pcs = pc[:n]
 	return pcs
+}
+
+func prettyFile(f string) string {
+	if len(gopath) == 0 {
+		return f
+	}
+
+	// TODO: also split by bitbucket, github.com, gopkg, golang.org?
+
+	parts := strings.Split(f, fmt.Sprintf("%s/src", gopath))
+	part := parts[len(parts)-1]
+
+	return strings.TrimPrefix(part, "/")
+}
+
+func mergePCs(x []uintptr, y ...uintptr) []uintptr {
+	z := append(x, y...)
+
+	sort.Slice(z, func(i, j int) bool {
+		return z[i] < z[j]
+	})
+
+	return slices.Compact(z)
 }
