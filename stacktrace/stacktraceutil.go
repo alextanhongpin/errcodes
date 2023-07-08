@@ -25,10 +25,12 @@ func FormatFrame(frame runtime.Frame) string {
 	)
 }
 
+// calling callers with 0 is the default.
 func callers(skip int) []uintptr {
 	const depth = 64
 	var pc [depth]uintptr
-	n := runtime.Callers(skip, pc[:])
+	// skip [runtime.Callers, callers]
+	n := runtime.Callers(skip+2, pc[:])
 	if n == 0 {
 		return nil
 	}

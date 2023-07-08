@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-const indent = "    "
 const head = "Error: "
 const origin = "Origin is:"
 const end = "Ends here:"
@@ -32,7 +31,7 @@ func StackTrace(err error) []uintptr {
 			}
 		}
 
-		var rev []uintptr
+		var ordered []uintptr
 		for i, f := range frames(r.stack) {
 			fi := runtime.Frame{
 				File:     f.File,
@@ -47,14 +46,14 @@ func StackTrace(err error) []uintptr {
 			// The PC obtained by the runtime.Callers vs those from
 			// runtime.CallersFrames, frame.PC differ by 1.
 			// Instead of f.PC + 1, easier to point to original stack.
-			rev = append(rev, r.stack[i])
+			ordered = append(ordered, r.stack[i])
 		}
 
 		// Stack is ordered from bottom-up.
 		// Reverse it.
-		reverse(rev)
+		reverse(ordered)
 
-		stack = append(stack, rev...)
+		stack = append(stack, ordered...)
 		err = r.Unwrap()
 	}
 
@@ -66,83 +65,29 @@ func StackTrace(err error) []uintptr {
 	return stack
 }
 
+func SprintCaller(err error, skip int, reversed ...bool) string {
+	return sprintCaller(err, len(reversed) > 0, 1+skip)
+}
+
 // Sprint prints a readable stacktrace together with the cause.
-func Sprint(err error) string {
-	var sb strings.Builder
-
-	sb.WriteString(head)
-	sb.WriteString(err.Error())
-	sb.WriteRune('\n')
-
-	seen := make(map[runtime.Frame]bool)
-	errC := newErrorCause(err, "")
-	errC.cause = end
-	err = errC
-
-	for err != nil {
-		var r *errorCause
-		if !errors.As(err, &r) {
-			var s *errorStack
-			if !errors.As(err, &s) {
-				break
-			}
-
-			r = &errorCause{
-				stack: s.stack,
-			}
-		}
-
-		var rev []runtime.Frame
-		for _, f := range frames(r.stack) {
-			fi := runtime.Frame{
-				File:     f.File,
-				Function: f.Function,
-				Line:     f.Line,
-			}
-
-			if seen[fi] {
-				break
-			}
-			seen[fi] = true
-
-			rev = append(rev, f)
-		}
-
-		reverse(rev)
-
-		for i, f := range rev {
-			if i == len(rev)-1 && r.cause != "" {
-				sb.WriteString(indent)
-				sb.WriteString(r.cause)
-				sb.WriteRune('\n')
-			}
-			sb.WriteString(indent)
-			sb.WriteString(indent)
-			sb.WriteString(FormatFrame(f))
-			sb.WriteRune('\n')
-		}
-		err = r.Unwrap()
-	}
-
-	return sb.String()
+func Sprint(err error, reversed ...bool) string {
+	return sprintCaller(err, len(reversed) > 0, 1)
 }
 
 func Wrap(err error, cause string) error {
-	if !isErrorStack(err) {
-		err = newErrorStack(err)
-	}
+	return wrapCaller(err, cause, 1)
+}
 
-	return newErrorCause(err, cause)
+func WrapCaller(err error, cause string, skip int) error {
+	return wrapCaller(err, cause, 1+skip)
 }
 
 func New(err error) error {
-	if isErrorStack(err) {
-		return newErrorCause(err, "")
-	}
+	return newCaller(err, 1)
+}
 
-	errC := newErrorCause(newErrorStack(err), "")
-	errC.cause = origin
-	return errC
+func NewCaller(err error, skip int) error {
+	return newCaller(err, 1+skip)
 }
 
 type errorStack struct {
@@ -150,11 +95,11 @@ type errorStack struct {
 	stack []uintptr
 }
 
-func newErrorStack(err error) *errorStack {
+func newErrorStack(err error, skip int) *errorStack {
 	return &errorStack{
 		err: err,
-		// skip [runtime, caller, newErrorStack, parent]
-		stack: callers(4),
+		// skip [newErrorStack]
+		stack: callers(1 + skip),
 	}
 }
 
@@ -182,14 +127,15 @@ type errorCause struct {
 	cause string
 }
 
-func newErrorCause(err error, cause string) *errorCause {
+// for each new call, add 1 to skip
+func newErrorCause(err error, cause string, skip int) *errorCause {
 	if cause != "" {
 		cause = fmt.Sprintf("Caused by: %s", cause)
 	}
 	return &errorCause{
 		err: err,
-		// skip [runtime, caller, newErrorStack, parent]
-		stack: callers(4),
+		// skip [newErrorCause]
+		stack: callers(1 + skip),
 		cause: cause,
 	}
 }
@@ -200,4 +146,98 @@ func (e *errorCause) Error() string {
 
 func (e *errorCause) Unwrap() error {
 	return e.err
+}
+
+func sprintCaller(err error, reversed bool, skip int) string {
+	var res []string
+
+	header := fmt.Sprintf("%s%s", head, err)
+
+	seen := make(map[runtime.Frame]bool)
+	errC := newErrorCause(err, "", 1+skip)
+	errC.cause = end
+	err = errC
+
+	for err != nil {
+		var r *errorCause
+		if !errors.As(err, &r) {
+			var s *errorStack
+			if !errors.As(err, &s) {
+				break
+			}
+
+			r = &errorCause{
+				stack: s.stack,
+			}
+		}
+
+		// By default, it is ordered from inner (origin of error) to outer main
+		// program.
+		var ordered []runtime.Frame
+		for _, f := range frames(r.stack) {
+			fi := runtime.Frame{
+				File:     f.File,
+				Function: f.Function,
+				Line:     f.Line,
+			}
+
+			if seen[fi] {
+				break
+			}
+			seen[fi] = true
+			ordered = append(ordered, f)
+		}
+
+		var j int
+		if reversed {
+			reverse(ordered)
+			j = len(ordered) - 1
+		} else {
+			j = 0
+		}
+
+		var tmp []string
+		for i, f := range ordered {
+			var s string
+			if i == j && r.cause != "" {
+				s = fmt.Sprintf("    %s\n", r.cause)
+			}
+			s = fmt.Sprintf("%s        %s", s, FormatFrame(f))
+			tmp = append(tmp, s)
+		}
+
+		if !reversed {
+			reverse(tmp)
+		}
+
+		res = append(res, tmp...)
+		err = r.Unwrap()
+	}
+
+	if reversed {
+		res = append([]string{header}, res...)
+	} else {
+		res = append(res, header)
+		reverse(res)
+	}
+
+	return strings.Join(res, "\n")
+}
+
+func wrapCaller(err error, cause string, skip int) error {
+	if !isErrorStack(err) {
+		err = newErrorStack(err, 1+skip)
+	}
+
+	return newErrorCause(err, cause, 1+skip)
+}
+
+func newCaller(err error, skip int) error {
+	if isErrorStack(err) {
+		return newErrorCause(err, "", 1+skip)
+	}
+
+	errC := newErrorCause(newErrorStack(err, 1+skip), "", 1+skip)
+	errC.cause = origin
+	return errC
 }

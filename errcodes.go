@@ -5,42 +5,55 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/alextanhongpin/errcodes/stacktrace"
 	"google.golang.org/grpc/codes"
 )
 
-var (
-	ErrInvalidKind   = errors.New("errcodes: invalid kind")
-	ErrDuplicateCode = errors.New("errcodes: duplicate code")
-	ErrInvalidFormat = errors.New("errcodes: invalid format")
-)
+var ErrInvalidKind = errors.New("errcodes: invalid kind")
 
 type Code string
 
 type Kind string
 
 const (
+	Aborted            Kind = "aborted"
 	BadRequest         Kind = "bad_request"
+	Canceled           Kind = "cancelled"
 	Conflict           Kind = "conflict"
+	DataLoss           Kind = "data_loss"
+	DeadlineExceeded   Kind = "deadline_exceeded"
 	Exists             Kind = "exists"
 	Forbidden          Kind = "forbidden"
 	Internal           Kind = "internal"
 	NotFound           Kind = "not_found"
+	NotImplemented     Kind = "not_implemented"
+	OutOfRange         Kind = "out_of_range"
 	PreconditionFailed Kind = "precondition_failed"
+	TooManyRequests    Kind = "too_many_requests"
 	Unauthorized       Kind = "unauthorized"
+	Unavailable        Kind = "unavailable"
 	Unknown            Kind = "unknown"
 )
 
 func (c Kind) Valid() bool {
 	switch c {
 	case
+		Aborted,
 		BadRequest,
+		Canceled,
 		Conflict,
+		DataLoss,
+		DeadlineExceeded,
 		Exists,
 		Forbidden,
 		Internal,
 		NotFound,
+		NotImplemented,
+		OutOfRange,
 		PreconditionFailed,
+		TooManyRequests,
 		Unauthorized,
+		Unavailable,
 		Unknown:
 		return true
 	default:
@@ -49,31 +62,43 @@ func (c Kind) Valid() bool {
 }
 
 type Error struct {
-	Kind    Kind
-	Code    Code
-	Message string
+	kind    Kind
+	code    Code
+	message string
 }
 
 // New returns a new error with the given code, reason and description.
-func New(kind Kind, code Code, message string) *Error {
+func New(kind Kind, code Code, message string) error {
 	if !kind.Valid() {
 		panic(ErrInvalidKind)
 	}
 
 	return &Error{
-		Kind:    kind,
-		Code:    code,
-		Message: message,
+		kind:    kind,
+		code:    code,
+		message: message,
 	}
 }
 
 // Error satisfies the error interface.
 func (e *Error) Error() string {
-	return e.Message
+	return e.message
+}
+
+func (e *Error) Kind() Kind {
+	return e.kind
+}
+
+func (e *Error) Code() Code {
+	return e.code
+}
+
+func (e *Error) Message() string {
+	return e.message
 }
 
 func (e *Error) String() string {
-	return fmt.Sprintf("[errcodes.%s] %s: %s", e.Kind, e.Code, e.Message)
+	return fmt.Sprintf("%s/%s: %s", e.kind, e.code, e.message)
 }
 
 // Is checks if the error is of the same kind and same code.
@@ -83,18 +108,26 @@ func (e *Error) Is(err error) bool {
 		return false
 	}
 
-	return e.Kind == ec.Kind && e.Code == ec.Code
+	return e.kind == ec.kind && e.code == ec.code
 }
 
 var httpStatusByKind = map[Kind]int{
+	Aborted:            http.StatusConflict,
 	BadRequest:         http.StatusBadRequest,
+	Canceled:           499, // client closed request.
 	Conflict:           http.StatusConflict,
+	DataLoss:           http.StatusInternalServerError,
+	DeadlineExceeded:   http.StatusGatewayTimeout,
 	Exists:             http.StatusConflict,
 	Forbidden:          http.StatusForbidden,
 	Internal:           http.StatusInternalServerError,
 	NotFound:           http.StatusNotFound,
-	PreconditionFailed: http.StatusPreconditionFailed,
+	NotImplemented:     http.StatusNotImplemented,
+	OutOfRange:         http.StatusBadRequest,
+	PreconditionFailed: http.StatusBadRequest,
+	TooManyRequests:    http.StatusTooManyRequests,
 	Unauthorized:       http.StatusUnauthorized,
+	Unavailable:        http.StatusServiceUnavailable,
 	Unknown:            http.StatusInternalServerError,
 }
 
@@ -107,15 +140,24 @@ func HTTPStatusCode(kind Kind) int {
 	return status
 }
 
+// https://chromium.googlesource.com/external/github.com/grpc/grpc/+/refs/tags/v1.21.4-pre1/doc/statuscodes.md
 var grpcCodeByKind = map[Kind]codes.Code{
+	Aborted:            codes.Aborted,
 	BadRequest:         codes.InvalidArgument,
+	Canceled:           codes.Canceled,
 	Conflict:           codes.Aborted,
+	DataLoss:           codes.DataLoss,
+	DeadlineExceeded:   codes.DeadlineExceeded,
 	Exists:             codes.AlreadyExists,
 	Forbidden:          codes.PermissionDenied,
 	Internal:           codes.Internal,
 	NotFound:           codes.NotFound,
+	NotImplemented:     codes.Unimplemented,
+	OutOfRange:         codes.OutOfRange,
 	PreconditionFailed: codes.FailedPrecondition,
+	TooManyRequests:    codes.ResourceExhausted,
 	Unauthorized:       codes.Unauthenticated,
+	Unavailable:        codes.Unavailable,
 	Unknown:            codes.Unknown,
 }
 
@@ -126,4 +168,34 @@ func GRPCCode(kind Kind) codes.Code {
 		return codes.Internal
 	}
 	return code
+}
+
+var kindByGRPCCode = func() map[codes.Code]Kind {
+	m := make(map[codes.Code]Kind)
+	for k, v := range grpcCodeByKind {
+		m[v] = k
+	}
+	return m
+}()
+
+// GRPCCodeToHTTP returns the HTTP code for the given grpc code.
+func GRPCCodeToHTTP(code codes.Code) int {
+	kind, ok := kindByGRPCCode[code]
+	if !ok {
+		return http.StatusInternalServerError
+	}
+
+	return HTTPStatusCode(kind)
+}
+
+func WithStack(err error) error {
+	return stacktrace.NewCaller(err, 1)
+}
+
+func Wrap(err error, cause string) error {
+	return stacktrace.WrapCaller(err, cause, 1)
+}
+
+func Sprint(err error, reversed ...bool) string {
+	return stacktrace.SprintCaller(err, 1, reversed...)
 }

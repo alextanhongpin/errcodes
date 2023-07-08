@@ -16,17 +16,20 @@ func TestErrcodes(t *testing.T) {
 	var err error = ErrUserExists
 
 	tests := make(map[string]bool)
-	tests["kind match"] = ErrUserExists.Kind == errcodes.Exists
-	tests["code match"] = ErrUserExists.Code == "user_exists"
-	tests["errors.Is returns true for unwrapped error"] = errors.Is(err, ErrUserExists)
-	tests["errors.Is returns true for wrapped error"] = errors.Is(fmt.Errorf("%w: John", err), ErrUserExists)
-	tests["errors.Unwrap matches"] = errors.Unwrap(fmt.Errorf("%w: John", err)) == ErrUserExists
 
 	var errC *errcodes.Error
 	tests["errors.As returns true"] = errors.As(err, &errC)
 
-	tests["correct http status code"] = errcodes.HTTPStatusCode(errC.Kind) == http.StatusConflict
-	tests["correct grpc status code"] = errcodes.GRPCCode(errC.Kind) == codes.AlreadyExists
+	tests["stringer"] = errC.String() == "exists/user_exists: The user account already exists"
+	tests["Error"] = errC.Error() == "The user account already exists"
+	tests["kind match"] = errC.Kind() == errcodes.Exists
+	tests["code match"] = errC.Code() == "user_exists"
+	tests["errors.Is returns true for unwrapped error"] = errors.Is(err, ErrUserExists)
+	tests["errors.Is returns true for wrapped error"] = errors.Is(fmt.Errorf("%w: John", err), ErrUserExists)
+	tests["errors.Unwrap matches"] = errors.Unwrap(fmt.Errorf("%w: John", err)) == ErrUserExists
+
+	tests["correct http status code"] = errcodes.HTTPStatusCode(errC.Kind()) == http.StatusConflict
+	tests["correct grpc status code"] = errcodes.GRPCCode(errC.Kind()) == codes.AlreadyExists
 
 	for name, ok := range tests {
 		name, ok := name, ok
