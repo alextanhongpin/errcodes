@@ -67,7 +67,8 @@ func frames(pcs []uintptr) []runtime.Frame {
 	frames := runtime.CallersFrames(pcs)
 	for {
 		f, more := frames.Next()
-		if strings.HasPrefix(f.Function, "runtime") {
+		if strings.HasPrefix(f.Function, "runtime") ||
+			strings.HasPrefix(f.Function, "testing") {
 			continue
 		}
 		if f.Function == "" {
