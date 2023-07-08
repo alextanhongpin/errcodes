@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const head = "Error: "
+const head = "Error:"
 const origin = "Origin is:"
 const end = "Ends here:"
 
@@ -96,10 +96,12 @@ type errorStack struct {
 }
 
 func newErrorStack(err error, skip int) *errorStack {
+	skip++
+
 	return &errorStack{
 		err: err,
 		// skip [newErrorStack]
-		stack: callers(1 + skip),
+		stack: callers(skip),
 	}
 }
 
@@ -129,13 +131,15 @@ type errorCause struct {
 
 // for each new call, add 1 to skip
 func newErrorCause(err error, cause string, skip int) *errorCause {
+	skip++
+
 	if cause != "" {
 		cause = fmt.Sprintf("Caused by: %s", cause)
 	}
 	return &errorCause{
 		err: err,
 		// skip [newErrorCause]
-		stack: callers(1 + skip),
+		stack: callers(skip),
 		cause: cause,
 	}
 }
@@ -149,12 +153,14 @@ func (e *errorCause) Unwrap() error {
 }
 
 func sprintCaller(err error, reversed bool, skip int) string {
+	skip++
+
 	var res []string
 
-	header := fmt.Sprintf("%s%s", head, err)
+	header := fmt.Sprintf("%s %s", head, err)
 
 	seen := make(map[runtime.Frame]bool)
-	errC := newErrorCause(err, "", 1+skip)
+	errC := newErrorCause(err, "", skip)
 	errC.cause = end
 	err = errC
 
@@ -225,19 +231,24 @@ func sprintCaller(err error, reversed bool, skip int) string {
 }
 
 func wrapCaller(err error, cause string, skip int) error {
+	skip++
 	if !isErrorStack(err) {
-		err = newErrorStack(err, 1+skip)
+		errS := newErrorStack(err, skip)
+		errC := newErrorCause(errS, cause, skip)
+		errC.cause = fmt.Sprintf("%s %s", origin, cause)
+		return errC
 	}
 
-	return newErrorCause(err, cause, 1+skip)
+	return newErrorCause(err, cause, skip)
 }
 
 func newCaller(err error, skip int) error {
+	skip++
 	if isErrorStack(err) {
-		return newErrorCause(err, "", 1+skip)
+		return newErrorCause(err, "", skip)
 	}
 
-	errC := newErrorCause(newErrorStack(err, 1+skip), "", 1+skip)
+	errC := newErrorCause(newErrorStack(err, skip), "", skip)
 	errC.cause = origin
 	return errC
 }
