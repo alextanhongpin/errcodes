@@ -2,28 +2,40 @@ package stacktrace
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 )
 
-// Flatten flattens the stacktrace from nested errors and remove duplicates
-// program counters.
-// Use this before sending the stacktrace information to monitoring tools like
-// Sentry etc.
-// Flatten removes the Cause from the *errorDetails.
-func Flatten(err error) error {
+const indent = "    "
+const head = "Error: "
+const origin = "Origin is:"
+const end = "Ends here:"
+
+// StackTrace returns the stacktrace from nested errors after removing
+// duplicated program counters.
+func StackTrace(err error) []uintptr {
 	var stack []uintptr
 
 	seen := make(map[runtime.Frame]bool)
-	err = newErrorStack(err, "")
+
+	err = newErrorCause(err, "")
 
 	for err != nil {
-		var r *errorStack
+		var r *errorCause
 		if !errors.As(err, &r) {
-			break
+			var s *errorStack
+			if !errors.As(err, &s) {
+				break
+			}
+
+			r = &errorCause{
+				stack: s.stack,
+			}
 		}
 
-		for _, f := range frames(r.stack) {
+		var rev []uintptr
+		for i, f := range frames(r.stack) {
 			fi := runtime.Frame{
 				File:     f.File,
 				Function: f.Function,
@@ -34,34 +46,45 @@ func Flatten(err error) error {
 				break
 			}
 			seen[fi] = true
-
-			stack = append(stack, f.PC)
+			// The PC obtained by the runtime.Callers vs those from
+			// runtime.CallersFrames, frame.PC differ by 1.
+			rev = append(rev, r.stack[i])
 		}
+
+		reverse(rev)
+
+		stack = append(stack, rev...)
 
 		err = r.Unwrap()
 	}
 
-	return &errorStack{
-		err:   err,
-		stack: stack,
-	}
+	return stack
 }
 
 // Sprint prints a readable stacktrace together with the cause.
 func Sprint(err error) string {
 	var sb strings.Builder
 
-	sb.WriteString("Error: ")
+	sb.WriteString(head)
 	sb.WriteString(err.Error())
 	sb.WriteRune('\n')
 
 	seen := make(map[runtime.Frame]bool)
-	err = newErrorStack(err, "")
+	errC := newErrorCause(err, "")
+	errC.cause = end
+	err = errC
 
 	for err != nil {
-		var r *errorStack
+		var r *errorCause
 		if !errors.As(err, &r) {
-			break
+			var s *errorStack
+			if !errors.As(err, &s) {
+				break
+			}
+
+			r = &errorCause{
+				stack: s.stack,
+			}
 		}
 
 		var rev []runtime.Frame
@@ -84,12 +107,13 @@ func Sprint(err error) string {
 
 		for i, f := range rev {
 			if i == len(rev)-1 && r.cause != "" {
-				sb.WriteString("    Caused by: ")
+				sb.WriteString(indent)
 				sb.WriteString(r.cause)
 				sb.WriteRune('\n')
 			}
-			sb.WriteRune('\t')
-			sb.WriteString(formatFrame(f))
+			sb.WriteString(indent)
+			sb.WriteString(indent)
+			sb.WriteString(FormatFrame(f))
 			sb.WriteRune('\n')
 		}
 		err = r.Unwrap()
@@ -99,25 +123,33 @@ func Sprint(err error) string {
 }
 
 func Wrap(err error, cause string) error {
-	return newErrorStack(err, cause)
+	if !isErrorStack(err) {
+		err = newErrorStack(err)
+	}
+
+	return newErrorCause(err, cause)
 }
 
 func New(err error) error {
-	return newErrorStack(err, err.Error())
+	if isErrorStack(err) {
+		return newErrorCause(err, "")
+	}
+
+	errC := newErrorCause(newErrorStack(err), "")
+	errC.cause = origin
+	return errC
 }
 
 type errorStack struct {
 	err   error
 	stack []uintptr
-	cause string
 }
 
-func newErrorStack(err error, cause string) error {
+func newErrorStack(err error) *errorStack {
 	return &errorStack{
 		err: err,
 		// skip [runtime, caller, newErrorStack, parent]
 		stack: callers(4),
-		cause: cause,
 	}
 }
 
@@ -132,4 +164,35 @@ func (r *errorStack) Error() string {
 
 func (r *errorStack) Unwrap() error {
 	return r.err
+}
+
+func isErrorStack(err error) bool {
+	var e *errorStack
+	return errors.As(err, &e)
+}
+
+type errorCause struct {
+	err   error
+	stack []uintptr
+	cause string
+}
+
+func newErrorCause(err error, cause string) *errorCause {
+	if cause != "" {
+		cause = fmt.Sprintf("Caused by: %s", cause)
+	}
+	return &errorCause{
+		err: err,
+		// skip [runtime, caller, newErrorStack, parent]
+		stack: callers(4),
+		cause: cause,
+	}
+}
+
+func (e *errorCause) Error() string {
+	return e.err.Error()
+}
+
+func (e *errorCause) Unwrap() error {
+	return e.err
 }

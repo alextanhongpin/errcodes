@@ -17,7 +17,7 @@ func reverse[T any](s []T) {
 	}
 }
 
-func formatFrame(frame runtime.Frame) string {
+func FormatFrame(frame runtime.Frame) string {
 	return fmt.Sprintf("at %s (in %s:%d)",
 		prettyFunction(frame.Function),
 		prettyFile(frame.File),
