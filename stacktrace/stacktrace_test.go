@@ -32,7 +32,8 @@ func ExampleSprint() {
 }
 
 func ExampleFormat() {
-	stack := stacktrace.StackTrace(bar())
+	err := bar()
+	stack := stacktrace.StackTrace(err)
 	frames := runtime.CallersFrames(stack)
 	for {
 		frame, more := frames.Next()
@@ -42,8 +43,8 @@ func ExampleFormat() {
 		}
 	}
 	// Output:
-	// at stacktrace_test.ExampleFormat (in stacktrace_test.go:35)
-	// at stacktrace_test.bar (in stacktrace_test.go:18)
-	// at stacktrace_test.bar (in stacktrace_test.go:17)
 	// at stacktrace_test.foo (in stacktrace_test.go:13)
+	// at stacktrace_test.bar (in stacktrace_test.go:17)
+	// at stacktrace_test.bar (in stacktrace_test.go:18)
+	// at stacktrace_test.ExampleFormat (in stacktrace_test.go:35)
 }

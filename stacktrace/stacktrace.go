@@ -19,8 +19,6 @@ func StackTrace(err error) []uintptr {
 
 	seen := make(map[runtime.Frame]bool)
 
-	err = newErrorCause(err, "")
-
 	for err != nil {
 		var r *errorCause
 		if !errors.As(err, &r) {
@@ -48,15 +46,22 @@ func StackTrace(err error) []uintptr {
 			seen[fi] = true
 			// The PC obtained by the runtime.Callers vs those from
 			// runtime.CallersFrames, frame.PC differ by 1.
+			// Instead of f.PC + 1, easier to point to original stack.
 			rev = append(rev, r.stack[i])
 		}
 
+		// Stack is ordered from bottom-up.
+		// Reverse it.
 		reverse(rev)
 
 		stack = append(stack, rev...)
-
 		err = r.Unwrap()
 	}
+
+	// Return in the order as what the original
+	// runtime.Callers will return, which is
+	// from the error origin to main.
+	reverse(stack)
 
 	return stack
 }
