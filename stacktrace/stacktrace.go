@@ -6,6 +6,48 @@ import (
 	"strings"
 )
 
+// Flatten flattens the stacktrace from nested errors and remove duplicates
+// program counters.
+// Use this before sending the stacktrace information to monitoring tools like
+// Sentry etc.
+// Flatten removes the Cause from the *errorDetails.
+func Flatten(err error) error {
+	var stack []uintptr
+
+	seen := make(map[runtime.Frame]bool)
+	err = newErrorStack(err, "")
+
+	for err != nil {
+		var r *errorStack
+		if !errors.As(err, &r) {
+			break
+		}
+
+		for _, f := range frames(r.stack) {
+			fi := runtime.Frame{
+				File:     f.File,
+				Function: f.Function,
+				Line:     f.Line,
+			}
+
+			if seen[fi] {
+				break
+			}
+			seen[fi] = true
+
+			stack = append(stack, f.PC)
+		}
+
+		err = r.Unwrap()
+	}
+
+	return &errorStack{
+		err:   err,
+		stack: stack,
+	}
+}
+
+// Sprint prints a readable stacktrace together with the cause.
 func Sprint(err error) string {
 	var sb strings.Builder
 
@@ -77,6 +119,11 @@ func newErrorStack(err error, cause string) error {
 		stack: callers(4),
 		cause: cause,
 	}
+}
+
+// StackTrace returns the stacktrace of the current error.
+func (r *errorStack) StackTrace() []uintptr {
+	return r.stack
 }
 
 func (r *errorStack) Error() string {
