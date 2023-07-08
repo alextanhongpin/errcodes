@@ -18,7 +18,7 @@ func ExampleWrap() {
 	// Output:
 	// Error: Payout cannot be processed. Please contact customer support for more information
 	//     Caused by: account is actually frozen
-	//         at errcodes_test.handlePayout (in examples_wrap_test.go:28)
+	//         at errcodes_test.handlePayout (in examples_wrap_test.go:36)
 	//         at errcodes_test.ExampleWrap (in examples_wrap_test.go:12)
 	//     Ends here:
 	//         at errcodes_test.ExampleWrap (in examples_wrap_test.go:13)
@@ -29,7 +29,7 @@ func ExampleWrap() {
 	//         at errcodes_test.ExampleWrap (in examples_wrap_test.go:16)
 	//         at errcodes_test.ExampleWrap (in examples_wrap_test.go:12)
 	//     Caused by: account is actually frozen
-	//         at errcodes_test.handlePayout (in examples_wrap_test.go:28)
+	//         at errcodes_test.handlePayout (in examples_wrap_test.go:36)
 }
 
 func handlePayout() error {
