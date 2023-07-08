@@ -2,7 +2,6 @@ package stacktrace
 
 import (
 	"errors"
-	"fmt"
 	"runtime"
 	"strings"
 )
@@ -23,7 +22,7 @@ func Sprint(err error) string {
 			break
 		}
 
-		var rev []string
+		var rev []runtime.Frame
 		for _, f := range frames(r.stack) {
 			fi := runtime.Frame{
 				File:     f.File,
@@ -36,21 +35,21 @@ func Sprint(err error) string {
 			}
 			seen[fi] = true
 
-			rev = append(rev, fmt.Sprintf("\t%s", formatFrame(f)))
+			rev = append(rev, f)
 		}
 
 		reverse(rev)
 
-		for i, s := range rev {
+		for i, f := range rev {
 			if i == len(rev)-1 && r.cause != "" {
 				sb.WriteString("    Caused by: ")
 				sb.WriteString(r.cause)
 				sb.WriteRune('\n')
 			}
-			sb.WriteString(s)
+			sb.WriteRune('\t')
+			sb.WriteString(formatFrame(f))
 			sb.WriteRune('\n')
 		}
-
 		err = r.Unwrap()
 	}
 

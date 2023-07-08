@@ -67,10 +67,19 @@ func frames(pcs []uintptr) []runtime.Frame {
 	frames := runtime.CallersFrames(pcs)
 	for {
 		f, more := frames.Next()
+
+		// Skip runtime and testing package.
 		if strings.HasPrefix(f.Function, "runtime") ||
 			strings.HasPrefix(f.Function, "testing") {
 			continue
 		}
+
+		// Skip files with underscore.
+		// e.g. _testmain.go
+		if strings.HasPrefix(f.File, "_") {
+			continue
+		}
+
 		if f.Function == "" {
 			break
 		}

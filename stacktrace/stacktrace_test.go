@@ -7,15 +7,24 @@ import (
 	"github.com/alextanhongpin/errcodes/stacktrace"
 )
 
-func ExampleStackTrace() {
-	err := errors.New("an unexpected error")
-	err = stacktrace.New(err)
+func foo() error {
+	err := errors.New("foo")
+	return stacktrace.New(err)
+}
 
-	fmt.Println(stacktrace.Sprint(err))
+func bar() error {
+	err := foo()
+	return stacktrace.Wrap(err, "bar")
+}
+
+func ExampleStackTrace() {
+	fmt.Println(stacktrace.Sprint(bar()))
 	// Output:
-	// Error: an unexpected error
-	// 	at main.main (in _testmain.go:49)
-	// 	at stacktrace_test.ExampleStackTrace (in stacktrace_test.go:14)
-	//     Caused by: an unexpected error
-	// 	at stacktrace_test.ExampleStackTrace (in stacktrace_test.go:12)
+	// Error: foo
+	// 	at stacktrace_test.ExampleStackTrace (in stacktrace_test.go:21)
+	//     Caused by: bar
+	// 	at stacktrace_test.bar (in stacktrace_test.go:17)
+	// 	at stacktrace_test.bar (in stacktrace_test.go:16)
+	//     Caused by: foo
+	// 	at stacktrace_test.foo (in stacktrace_test.go:12)
 }
