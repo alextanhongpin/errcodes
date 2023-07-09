@@ -49,6 +49,10 @@ type errorStack struct {
 }
 
 func newErrorStack(err error, skip int) *errorStack {
+	if err == nil {
+		return nil
+	}
+
 	skip++
 
 	return &errorStack{
@@ -84,6 +88,10 @@ type errorCause struct {
 
 // for each new call, add 1 to skip
 func newErrorCause(err error, cause string, skip int) *errorCause {
+	if err == nil {
+		return nil
+	}
+
 	skip++
 
 	if cause != "" {
@@ -106,6 +114,10 @@ func (e *errorCause) Unwrap() error {
 }
 
 func sprintCaller(err error, reversed bool, skip int) string {
+	if err == nil {
+		return ""
+	}
+
 	skip++
 
 	errC := newErrorCause(err, "", skip)
@@ -148,6 +160,10 @@ func sprintCaller(err error, reversed bool, skip int) string {
 }
 
 func wrapCaller(err error, cause string, skip int) error {
+	if err == nil {
+		return nil
+	}
+
 	skip++
 	if isErrorStack(err) {
 		return newErrorCause(err, cause, skip)
@@ -160,6 +176,10 @@ func wrapCaller(err error, cause string, skip int) error {
 }
 
 func newCaller(err error, skip int) error {
+	if err == nil {
+		return nil
+	}
+
 	skip++
 	if isErrorStack(err) {
 		return newErrorCause(err, "", skip)
@@ -171,6 +191,10 @@ func newCaller(err error, skip int) error {
 }
 
 func unwrap(err error) ([]uintptr, map[uintptr]string) {
+	if err == nil {
+		return nil, nil
+	}
+
 	var stack []uintptr
 	cause := make(map[uintptr]string)
 	seen := make(map[runtime.Frame]bool)
