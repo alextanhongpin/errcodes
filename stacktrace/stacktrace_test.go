@@ -52,7 +52,7 @@ func ExampleSprintReverse() {
 
 func ExampleFormat() {
 	err := bar()
-	stack := stacktrace.StackTrace(err)
+	stack, _ := stacktrace.Unwrap(err)
 	frames := runtime.CallersFrames(stack)
 	for {
 		frame, more := frames.Next()
