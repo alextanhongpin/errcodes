@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/alextanhongpin/errcodes/stacktrace"
 	"google.golang.org/grpc/codes"
 )
 
@@ -186,16 +185,4 @@ func GRPCCodeToHTTP(code codes.Code) int {
 	}
 
 	return HTTPStatusCode(kind)
-}
-
-func WithStack(err error) error {
-	return stacktrace.NewCaller(err, 1)
-}
-
-func Wrap(err error, cause string) error {
-	return stacktrace.WrapCaller(err, cause, 1)
-}
-
-func Sprint(err error, reversed ...bool) string {
-	return stacktrace.SprintCaller(err, 1, reversed...)
 }
