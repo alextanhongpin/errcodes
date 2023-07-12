@@ -33,8 +33,59 @@ func Sprint(err error, reversed bool) string {
 	return sprint(err, reversed)
 }
 
+func StackTrace(err error) []Frame {
+	return stacktrace(err)
+}
+
 func Unwrap(err error) ([]uintptr, map[uintptr]string) {
 	return internal.Unwrap(err)
+}
+
+type Frame struct {
+	ID       int    `json:"id"`
+	Cause    string `json:"cause"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Function string `json:"function"`
+}
+
+func stacktrace(err error) []Frame {
+	if err == nil {
+		return nil
+	}
+
+	var res []Frame
+
+	pcs, cause := Unwrap(err)
+	pcs = filterFrames(pcs)
+
+	var id int
+	frames := runtime.CallersFrames(pcs)
+	for {
+		id++
+		frame, more := frames.Next()
+		if skipFrame(frame) {
+			if !more {
+				break
+			}
+
+			continue
+		}
+
+		msg, _ := cause[frame.PC+1]
+		res = append(res, Frame{
+			ID:       id,
+			Cause:    msg,
+			File:     frame.File,
+			Function: frame.Function,
+			Line:     frame.Line,
+		})
+		if !more {
+			break
+		}
+	}
+
+	return res
 }
 
 func sprint(err error, reversed bool) string {
