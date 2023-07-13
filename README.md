@@ -42,3 +42,25 @@ To solve the issue of overexposing the stacktrace for every error we wrap, we us
 4. otherwise, the `StackTrace` method will return nothing
 5. for each error we wrap, we still create the stacktrace
 ```
+
+## Best practices
+
+- wrap error with data. e.g. rate limit error. wrap the error to jnclude rate limit information. use error hint for wrapping data.
+- dont mix error and data, wrap error with data instead
+- base error should be sentinel error
+- avoid overwrapping error, e.g. with function name, line number etc, use stack trace
+- however, try to reduce wrapping your errors with too many layers of stack tracea
+- dont mix templating with errors
+- at the same time, use factory to generate template documentation
+- understand how sentinel error really works
+- separate custom error
+- dont use generics for errors, just create a new type. it is the same, but the type has nicer naming instead of generic
+- error should be grouped by kind
+- code maps to http status code, grpc code
+ - reason is the enum for failure, e.g. `user_not_found` or maybe even `domain/user_not_found`.
+- separate localisation, use localized error
+- allow actionable erros using sentinel error is comparison
+- dont show wrapped error to end user, always unwrap to domain error
+- if there is no domain error, default to internal server error
+- common issue, localization, data, comparison
+- for access control, look at okay
